@@ -1,12 +1,16 @@
 import random
 import time
 import os
+import json
 from typing_extensions import Annotated
 
 import pandas as pd
+import flytekit
 from flytekit import task, workflow, LaunchPlan, ImageSpec
+from flytekit.types.file import FlyteFile
 from flytekit.core.artifact import Artifact
 from unionai.artifacts import OnArtifact
+from unionai.artifacts import ModelCard
 
 
 image = ImageSpec(
@@ -24,7 +28,7 @@ processed_data = Artifact(
 
 
 @task(container_image=image)
-def process_data_task() -> Annotated[pd.DataFrame, processed_data]:
+def process_data_task() -> pd.DataFrame:
     entries = ["a", "b", "c", "d", "e"]
     numeric_data = [random.random() for _ in range(len(entries))]
 
@@ -32,7 +36,7 @@ def process_data_task() -> Annotated[pd.DataFrame, processed_data]:
 
 
 @workflow
-def process_data_wf() -> pd.DataFrame:
+def process_data_wf() -> Annotated[pd.DataFrame, processed_data]:
     return process_data_task()
 
 
@@ -41,23 +45,36 @@ trained_model = Artifact(
   # partition_keys=[key1, key2, ...]
 )
 
+def generate_card(df: pd.DataFrame) -> str:
+    contents = "# Dataset Card\n" "\n" "## Tabular Data\n"
+    contents = contents + df.to_markdown()
+    return contents
+
 
 @task(container_image=image)
-def train_model(data: pd.DataFrame, learning_rate: float, epochs: int) -> Annotated[dict, trained_model]:
-
-    start_time = time.time()
-    time.sleep(random.randint(2, 5))
+def train_model(data: pd.DataFrame, learning_rate: float, epochs: int) -> Annotated[FlyteFile, trained_model]:
 
     model = {
         "weights": [random.random() for _ in range(5)],
         "bias": random.random(),
-        "training_time": round(time.time() - start_time, 2),
+        "training_time": random.randint(2, 5),
         "accuracy": round(random.uniform(0.7, 0.99), 2),
     }
 
     print(f"Model trained in {model['training_time']} seconds with accuracy {model['accuracy']}")
 
-    return model
+    file_name = "model.json"
+    file_path = os.path.join(flytekit.current_context().working_directory, file_name)
+
+    with open(file_path, 'w') as file:
+        json.dump(model, file, indent=4)
+
+    # return FlyteFile(path=file_path)
+
+    return trained_model.create_from(
+        FlyteFile(path=file_path),
+        ModelCard(generate_card(pd.DataFrame(model)))
+    )
 
 
 data_query = processed_data.query()
@@ -68,8 +85,8 @@ def train_model_wf(
         learning_rate: float,
         epochs: int,
         data: pd.DataFrame = data_query,
-) -> dict:
-    return train_model(data=data, learning_rate=learning_rate, epochs=epochs)
+):
+    train_model(data=data, learning_rate=learning_rate, epochs=epochs)
 
 
 trigger_lp = LaunchPlan.get_or_create(
@@ -82,5 +99,4 @@ trigger_lp = LaunchPlan.get_or_create(
             "epochs": 10,
         }
     )
-
 )

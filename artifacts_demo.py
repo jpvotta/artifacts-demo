@@ -95,7 +95,7 @@ trigger_lp = LaunchPlan.get_or_create(
         trigger_on=processed_data,
         inputs={
             "learning_rate": 0.01,
-            "epochs": 10,
+            "epochs": 15,
         }
     )
 )

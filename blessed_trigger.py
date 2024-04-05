@@ -33,7 +33,7 @@ def generate_card(df: pd.DataFrame) -> str:
 
 
 @task(container_image=image)
-def product_development_task(blessed_or_not: str) -> dict:
+def product_development_task(blessed_or_not: str) -> Annotated[dict, blessed_model]:
     model = {
         "weights": [random.random() for _ in range(5)],
         "bias": random.random(),
@@ -49,8 +49,8 @@ def product_development_task(blessed_or_not: str) -> dict:
 
 
 @workflow
-def product_development_wf(blessed_or_not: str) -> Annotated[pd.DataFrame, blessed_model]:
-    return product_development_task()
+def product_development_wf(blessed_or_not: str):
+    product_development_task(blessed_or_not=blessed_or_not)
 
 
 data_query = blessed_model.query(blessed="true")

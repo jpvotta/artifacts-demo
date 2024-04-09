@@ -1,3 +1,5 @@
+# force update v2
+
 import random
 import os
 import json
@@ -20,20 +22,20 @@ image = ImageSpec(
 )
 
 
+def generate_card(df: pd.DataFrame) -> str:
+    contents = "# Sample Model Card\n" "\n" "## Tabular Data\n"
+    contents = contents + df.to_markdown()
+    return contents
+
+
 blessed_model = Artifact(
   name="blessed_model",
   partition_keys=["blessed"]
 )
 
 
-def generate_card(df: pd.DataFrame) -> str:
-    contents = "# Dataset Card\n" "\n" "## Tabular Data\n"
-    contents = contents + df.to_markdown()
-    return contents
-
-
 @task(container_image=image)
-def product_development_task(blessed_or_not: str) -> Annotated[dict, blessed_model]:
+def product_development_task(blessed_or_not: str) -> Annotated[FlyteFile, blessed_model]:
     model = {
         "weights": [random.random() for _ in range(5)],
         "bias": random.random(),
@@ -41,8 +43,14 @@ def product_development_task(blessed_or_not: str) -> Annotated[dict, blessed_mod
         "accuracy": round(random.uniform(0.7, 0.99), 2),
     }
 
+    file_name = "model.json"
+    file_path = os.path.join(flytekit.current_context().working_directory, file_name)
+
+    with open(file_path, 'w') as file:
+        json.dump(model, file, indent=4)
+
     return blessed_model.create_from(
-        model,
+        FlyteFile(path=file_path),
         ModelCard(generate_card(pd.DataFrame(model))),
         blessed=blessed_or_not
     )
@@ -53,22 +61,27 @@ def product_development_wf(blessed_or_not: str):
     product_development_task(blessed_or_not=blessed_or_not)
 
 
-data_query = blessed_model.query(blessed="true")
-
-
 prediction = Artifact(
   name="prediction",
 )
 
 
+data_query = blessed_model.query(blessed="true")
+
+
 @task(container_image=image)
-def ops_task(model: dict) -> Annotated[FlyteFile, prediction]:
+def ops_task(model: FlyteFile) -> Annotated[FlyteFile, prediction]:
+
+    with open(model, 'r') as file:
+        content = file.read()
+
+    content_dict = json.loads(content)
+    processed_content = json.dumps(content_dict, indent=4)
 
     file_name = "prediction.json"
     file_path = os.path.join(flytekit.current_context().working_directory, file_name)
-
     with open(file_path, 'w') as file:
-        json.dump(model, file, indent=4)
+        file.write(processed_content)
 
     return prediction.create_from(
         FlyteFile(path=file_path)
@@ -76,7 +89,7 @@ def ops_task(model: dict) -> Annotated[FlyteFile, prediction]:
 
 
 @workflow
-def ops_wf(model: dict = data_query):
+def ops_wf(model: FlyteFile = data_query):
     ops_task(model=model)
 
 
